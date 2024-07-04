@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-""" Use of regex in replacing occurrences of certain field values """
+"""
+Module for replacing occurrences of certain field values using regex.
+"""
 import re
 from typing import List
 import logging
@@ -8,7 +10,8 @@ import os
 
 
 class RedactingFormatter(logging.Formatter):
-    """ Redacting Formatter class
+    """
+    Custom logging formatter to redact specified fields in log messages.
     """
 
     REDACTION = "***"
@@ -16,11 +19,25 @@ class RedactingFormatter(logging.Formatter):
     SEPARATOR = ";"
 
     def __init__(self, fields: List[str]):
+        """
+        Initialize the RedactingFormatter.
+
+        Args:
+            fields (List[str]): List of fields to redact in log messages.
+        """
         super(RedactingFormatter, self).__init__(self.FORMAT)
         self.fields = fields
 
     def format(self, record: logging.LogRecord) -> str:
-        """ Returns filtered values from log records """
+        """
+        Format the log record by redacting specified fields.
+
+        Args:
+            record (logging.LogRecord): The log record to format.
+
+        Returns:
+            str: The formatted log record with redacted fields.
+        """
         return filter_datum(self.fields, self.REDACTION,
                             super().format(record), self.SEPARATOR)
 
@@ -28,20 +45,39 @@ class RedactingFormatter(logging.Formatter):
 PII_FIELDS = ("name", "email", "password", "ssn", "phone")
 
 
-def get_db() -> mysql.connector.connection.MYSQLConnection:
-    """ Connection to MySQL environment """
-    db_connect = mysql.connector.connect(
+def get_db() -> mysql.connector.connection.MySQLConnection:
+    """
+    Establish and return a connection to the MySQL database.
+
+    Returns:
+        mysql.connector.connection.MySQLConnection: Database
+        connection instance.
+    """
+    db_connection = mysql.connector.connect(
         user=os.getenv('PERSONAL_DATA_DB_USERNAME', 'root'),
         password=os.getenv('PERSONAL_DATA_DB_PASSWORD', ''),
         host=os.getenv('PERSONAL_DATA_DB_HOST', 'localhost'),
         database=os.getenv('PERSONAL_DATA_DB_NAME')
     )
-    return db_connect
+    return db_connection
 
 
 def filter_datum(fields: List[str], redaction: str, message: str,
                  separator: str) -> str:
-    """ Returns regex obfuscated log messages """
+    """
+    Obfuscate specified fields in a log message using regex.
+
+    Args:
+        fields (List[str]): List of fields to redact.
+        redaction (str): The string to replace the field
+        values with.
+        message (str): The original log message.
+        separator (str): The character that separates
+        key-value pairs in the message.
+
+    Returns:
+        str: The obfuscated log message.
+    """
     for field in fields:
         message = re.sub(f'{field}=(.*?){separator}',
                          f'{field}={redaction}{separator}', message)
@@ -49,38 +85,46 @@ def filter_datum(fields: List[str], redaction: str, message: str,
 
 
 def get_logger() -> logging.Logger:
-    """ Returns a logging.Logger object """
+    """
+    Create and configure a logger for user data.
+
+    Returns:
+        logging.Logger: Configured logger instance.
+    """
     logger = logging.getLogger("user_data")
     logger.setLevel(logging.INFO)
     logger.propagate = False
 
-    target_handler = logging.StreamHandler()
-    target_handler.setLevel(logging.INFO)
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.INFO)
 
     formatter = RedactingFormatter(list(PII_FIELDS))
-    target_handle.setFormatter(formatter)
+    stream_handler.setFormatter(formatter)
 
-    logger.addHandler(target_handler)
+    logger.addHandler(stream_handler)
     return logger
 
 
 def main() -> None:
-    """ Obtain database connection using get_db
-    retrieve all role in the users table and display
-    each row under a filtered format
+    """
+    Connect to the database, retrieve all rows from
+    the users table,
+    and log each row with sensitive data redacted.
     """
     db = get_db()
     cursor = db.cursor()
     cursor.execute("SELECT * FROM users;")
 
-    headers = [field[0] for field in cursor.description]
+    field_names = [field[0] for field in cursor.description]
     logger = get_logger()
 
     for row in cursor:
-        info_answer = ''
-        for f, p in zip(row, headers):
-            info_answer += f'{p}={(f)}; '
-        logger.info(info_answer)
+        log_message_parts = [
+            f'{field}={str(value)}; '
+            for value, field in zip(row, field_names)
+        ]
+        log_message = ''.join(log_message_parts)
+        logger.info(log_message.strip())
 
     cursor.close()
     db.close()
